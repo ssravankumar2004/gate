@@ -1,0 +1,3463 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Drawing;
+using System.Drawing.Printing;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+
+namespace foldereditnew
+{
+    public partial class Form1 : Form
+    {
+        //=========================================================
+        // CURRENT FOLDER
+        //=========================================================
+
+        private string currentFolder;
+
+
+        //=========================================================
+        // CURRENT FILE
+        //=========================================================
+
+        private string currentFilePath = "";
+
+
+        //=========================================================
+        // ORIGINAL FILE CONTENT
+        //=========================================================
+
+        private List<string> originalFileLines =
+            new List<string>();
+
+
+        //=========================================================
+        // FILE TYPE
+        //=========================================================
+
+        private bool currentFileIsPutEnv = false;
+
+
+        //=========================================================
+        // AUTO SAVE CONTROL
+        //=========================================================
+
+        private bool isLoadingFile = false;
+        private bool isAutoSaving = false;
+
+
+        //=========================================================
+        // SELECTED DUPLICATE
+        //=========================================================
+
+        private string selectedDuplicateParameter = "";
+
+
+        //=========================================================
+        // GRID ORIGINAL LINE TRACKING
+        //=========================================================
+
+        private List<int> gridOriginalLineIndexes =
+            new List<int>();
+
+
+        //=========================================================
+        // CURRENT DATA TABLE
+        //=========================================================
+
+        private DataTable currentDataTable = null;
+
+
+        //=========================================================
+        // CONSTRUCTOR
+        //=========================================================
+
+        public Form1()
+        {
+            InitializeComponent();
+
+            this.Load += Form1_Load;
+
+            listBox1.SelectedIndexChanged +=
+                listBox1_SelectedIndexChanged;
+
+            listBox2.SelectedIndexChanged +=
+                listBox2_SelectedIndexChanged;
+
+            listBox3.SelectedIndexChanged +=
+                listBox3_SelectedIndexChanged;
+
+            dataGridView1.CellFormatting +=
+                dataGridView1_CellFormatting;
+
+            dataGridView1.CellEndEdit +=
+                dataGridView1_CellEndEdit;
+
+            CreateDataGridViewContextMenu();
+            CreateListBox1ContextMenu();
+            CreateListBox2ContextMenu();
+
+            ConfigureListBoxSerialNumbers();
+
+            // ListBox3 fixed-width table
+            listBox3.Font =
+                new Font("Consolas", 10);
+
+            listBox3.ItemHeight = 26;
+        }
+
+
+        //=========================================================
+        // FORM LOAD
+        //=========================================================
+
+        private void Form1_Load(
+            object sender,
+            EventArgs e)
+        {
+            currentFolder =
+                Path.Combine(
+                    Application.StartupPath,
+                    "ReferenceFiles");
+
+            Directory.CreateDirectory(
+                currentFolder);
+
+            ConfigureListBoxSerialNumbers();
+
+            ConfigureDataGridView();
+
+            LoadReferenceFiles();
+
+            // Keep ListBox1 spacing
+            listBox1.ItemHeight = 30;
+
+            // Keep ListBox2 spacing
+            listBox2.ItemHeight = 30;
+
+            // Keep ListBox3 spacing
+            listBox3.ItemHeight = 26;
+        }
+
+
+        //=========================================================
+        // CONFIGURE LISTBOX SERIAL NUMBERS
+        //=========================================================
+
+        private void ConfigureListBoxSerialNumbers()
+        {
+            ConfigureListBox1SerialNumbers();
+            ConfigureListBox2SerialNumbers();
+            ConfigureListBox3SerialNumbers();
+        }
+
+
+        //=========================================================
+        // LISTBOX1 SERIAL NUMBERS
+        //=========================================================
+
+        private void ConfigureListBox1SerialNumbers()
+        {
+            listBox1.DrawMode =
+                DrawMode.OwnerDrawFixed;
+
+            listBox1.ItemHeight = 30;
+
+            listBox1.DrawItem -=
+                listBox1_DrawItem;
+
+            listBox1.DrawItem +=
+                listBox1_DrawItem;
+        }
+
+
+        //=========================================================
+        // LISTBOX1 DRAW
+        //=========================================================
+
+        private void listBox1_DrawItem(
+            object sender,
+            DrawItemEventArgs e)
+        {
+            DrawListBoxItem(
+                listBox1,
+                e,
+                false);
+        }
+
+
+        //=========================================================
+        // LISTBOX2 SERIAL NUMBERS
+        //=========================================================
+
+        private void ConfigureListBox2SerialNumbers()
+        {
+            listBox2.DrawMode =
+                DrawMode.OwnerDrawFixed;
+
+            listBox2.ItemHeight = 30;
+
+            listBox2.DrawItem -=
+                listBox2_DrawItem;
+
+            listBox2.DrawItem +=
+                listBox2_DrawItem;
+        }
+
+
+        //=========================================================
+        // LISTBOX2 DRAW
+        //=========================================================
+
+        private void listBox2_DrawItem(
+            object sender,
+            DrawItemEventArgs e)
+        {
+            if (e.Index < 0)
+                return;
+
+            e.DrawBackground();
+
+            string value =
+                listBox2.Items[e.Index]?.ToString() ?? "";
+
+            //-----------------------------------------------------
+            // REFERENCE FILES HEADER
+            //-----------------------------------------------------
+
+            if (e.Index == 0 &&
+                value.Equals(
+                    "REFERENCE FILES",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                using (Brush headerBrush =
+                       new SolidBrush(Color.DarkBlue))
+                {
+                    e.Graphics.FillRectangle(
+                        headerBrush,
+                        e.Bounds);
+                }
+
+                using (Brush textBrush =
+                       new SolidBrush(Color.White))
+                using (Font headerFont =
+                       new Font(
+                           listBox2.Font,
+                           FontStyle.Bold))
+                {
+                    e.Graphics.DrawString(
+                        "REFERENCE FILES",
+                        headerFont,
+                        textBrush,
+                        e.Bounds.Left + 8,
+                        e.Bounds.Top + 6);
+                }
+
+                e.DrawFocusRectangle();
+
+                return;
+            }
+
+            //-----------------------------------------------------
+            // NORMAL REFERENCE FILE
+            //-----------------------------------------------------
+
+            string displayText =
+                GetListBox2ReferenceDisplayText(
+                    e.Index,
+                    value);
+
+            using (Brush brush =
+                   new SolidBrush(e.ForeColor))
+            {
+                e.Graphics.DrawString(
+                    displayText,
+                    e.Font,
+                    brush,
+                    e.Bounds.Left + 5,
+                    e.Bounds.Top + 5);
+            }
+
+            e.DrawFocusRectangle();
+        }
+
+
+        //=========================================================
+        // LISTBOX2 DISPLAY TEXT
+        //=========================================================
+
+        private string GetListBox2ReferenceDisplayText(
+            int index,
+            string value)
+        {
+            int serialNumber = index;
+
+            return serialNumber +
+                   ". " +
+                   value;
+        }
+
+
+        //=========================================================
+        // LISTBOX3 TABLE
+        //=========================================================
+
+        private void ConfigureListBox3SerialNumbers()
+        {
+            listBox3.DrawMode =
+                DrawMode.OwnerDrawFixed;
+
+            listBox3.ItemHeight = 26;
+
+            listBox3.Font =
+                new Font("Consolas", 10);
+
+            listBox3.DrawItem -=
+                listBox3_DrawItem;
+
+            listBox3.DrawItem +=
+                listBox3_DrawItem;
+        }
+
+
+        //=========================================================
+        // LISTBOX3 DRAW
+        //=========================================================
+
+        private void listBox3_DrawItem(
+            object sender,
+            DrawItemEventArgs e)
+        {
+            if (e.Index < 0)
+                return;
+
+            e.DrawBackground();
+
+            string text =
+                listBox3.Items[e.Index]?.ToString() ?? "";
+
+            using (Brush brush =
+                   new SolidBrush(e.ForeColor))
+            {
+                e.Graphics.DrawString(
+                    text,
+                    listBox3.Font,
+                    brush,
+                    e.Bounds.Left + 5,
+                    e.Bounds.Top + 4);
+            }
+
+            e.DrawFocusRectangle();
+        }
+
+
+        //=========================================================
+        // COMMON LISTBOX DRAW
+        //=========================================================
+
+        private void DrawListBoxItem(
+            ListBox listBox,
+            DrawItemEventArgs e,
+            bool unused)
+        {
+            if (e.Index < 0)
+                return;
+
+            e.DrawBackground();
+
+            string value =
+                listBox.Items[e.Index]?.ToString() ?? "";
+
+            string displayText =
+                (e.Index + 1) +
+                ". " +
+                value;
+
+            using (Brush brush =
+                   new SolidBrush(e.ForeColor))
+            {
+                e.Graphics.DrawString(
+                    displayText,
+                    e.Font,
+                    brush,
+                    e.Bounds.Left + 5,
+                    e.Bounds.Top + 5);
+            }
+
+            e.DrawFocusRectangle();
+        }
+
+
+        //=========================================================
+        // DATAGRIDVIEW SETTINGS
+        //=========================================================
+
+        private void ConfigureDataGridView()
+        {
+            dataGridView1.AutoSizeColumnsMode =
+                DataGridViewAutoSizeColumnsMode.Fill;
+
+            dataGridView1.AllowUserToAddRows =
+                false;
+
+            dataGridView1.SelectionMode =
+                DataGridViewSelectionMode.FullRowSelect;
+
+            dataGridView1.MultiSelect =
+                false;
+
+            dataGridView1.EnableHeadersVisualStyles =
+                false;
+
+            dataGridView1.ColumnHeadersDefaultCellStyle.Font =
+                new Font(
+                    dataGridView1.Font,
+                    FontStyle.Bold);
+
+            dataGridView1.ColumnHeadersDefaultCellStyle.Alignment =
+                DataGridViewContentAlignment.MiddleCenter;
+        }
+
+
+        //=========================================================
+        // LOAD CONFIGURED FILES INTO LISTBOX1
+        //=========================================================
+
+        private void LoadReferenceFiles()
+        {
+            listBox1.Items.Clear();
+
+            if (string.IsNullOrWhiteSpace(currentFolder))
+                return;
+
+            if (!Directory.Exists(currentFolder))
+                Directory.CreateDirectory(currentFolder);
+
+            string[] files =
+                Directory.GetFiles(
+                    currentFolder,
+                    "*.txt",
+                    SearchOption.TopDirectoryOnly);
+
+            Array.Sort(
+                files,
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (string file in files)
+            {
+                listBox1.Items.Add(
+                    Path.GetFileName(file));
+            }
+
+            listBox1.ItemHeight = 30;
+
+            listBox1.Refresh();
+        }
+
+
+        //=========================================================
+        // FILE SELECTED FROM LISTBOX1
+        //=========================================================
+
+        private void listBox1_SelectedIndexChanged(
+            object sender,
+            EventArgs e)
+        {
+            if (listBox1.SelectedItem == null)
+                return;
+
+            string fileName =
+                listBox1.SelectedItem.ToString();
+
+            currentFilePath =
+                Path.Combine(
+                    currentFolder,
+                    fileName);
+
+            if (File.Exists(currentFilePath))
+            {
+                LoadFile(currentFilePath);
+            }
+        }
+
+
+        //=========================================================
+        // LOAD FILE
+        //=========================================================
+
+        private void LoadFile(
+            string filePath)
+        {
+            if (!File.Exists(filePath))
+                return;
+
+            try
+            {
+                isLoadingFile = true;
+
+                listBox2.Items.Clear();
+                listBox3.Items.Clear();
+
+                selectedDuplicateParameter = "";
+
+                string[] lines =
+                    File.ReadAllLines(filePath);
+
+                originalFileLines =
+                    lines.ToList();
+
+                gridOriginalLineIndexes.Clear();
+
+                currentFileIsPutEnv =
+                    lines.Any(
+                        x =>
+                            x.TrimStart()
+                             .StartsWith(
+                                 "putenv(",
+                                 StringComparison.OrdinalIgnoreCase));
+
+                DataTable dt =
+                    new DataTable();
+
+                currentDataTable = dt;
+
+                if (currentFileIsPutEnv)
+                {
+                    LoadPutEnvFile(
+                        lines,
+                        dt);
+                }
+                else
+                {
+                    LoadTableFile(
+                        lines,
+                        dt);
+                }
+
+                dataGridView1.DataSource = null;
+
+                dataGridView1.DataSource = dt;
+
+                ConfigureDataGridView();
+
+                for (int i = 0;
+                     i < dataGridView1.Columns.Count;
+                     i++)
+                {
+                    if (dataGridView1.Columns[i]
+                        .Name
+                        .StartsWith("Column"))
+                    {
+                        dataGridView1.Columns[i]
+                            .HeaderText = "";
+                    }
+                }
+
+                ShowDuplicateParameters();
+
+                dataGridView1.Refresh();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Error loading file:\n\n" +
+                    ex.Message,
+                    "Load Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            finally
+            {
+                isLoadingFile = false;
+            }
+        }
+
+
+        //=========================================================
+        // LOAD PUTENV FILE
+        //=========================================================
+
+        private void LoadPutEnvFile(
+            string[] lines,
+            DataTable dt)
+        {
+            dt.Columns.Add("Parameter");
+            dt.Columns.Add("Value");
+
+            gridOriginalLineIndexes.Clear();
+
+            // Always show reference header
+            listBox2.Items.Add(
+                "REFERENCE FILES");
+
+            for (int lineIndex = 0;
+                 lineIndex < lines.Length;
+                 lineIndex++)
+            {
+                string line =
+                    lines[lineIndex];
+
+                string text =
+                    line.Trim();
+
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                //-------------------------------------------------
+                // REFERENCE
+                //-------------------------------------------------
+
+                if (text.StartsWith("<"))
+                {
+                    string reference =
+                        text.Substring(1).Trim();
+
+                    if (!string.IsNullOrWhiteSpace(reference))
+                    {
+                        AddReferenceToListBox2WithoutDuplicateMessage(
+                            reference);
+                    }
+
+                    continue;
+                }
+
+                //-------------------------------------------------
+                // SECTION HEADER
+                //-------------------------------------------------
+
+                if (text.StartsWith("#") &&
+                    text.EndsWith("#"))
+                {
+                    string header =
+                        text.Trim('#').Trim();
+
+                    if (!string.IsNullOrWhiteSpace(header))
+                    {
+                        DataRow row =
+                            dt.NewRow();
+
+                        row[0] = header;
+                        row[1] = "";
+
+                        dt.Rows.Add(row);
+
+                        gridOriginalLineIndexes.Add(
+                            -(lineIndex + 2));
+                    }
+
+                    continue;
+                }
+
+                //-------------------------------------------------
+                // FULL LINE COMMENT
+                //-------------------------------------------------
+
+                if (text.StartsWith("#"))
+                    continue;
+
+                //-------------------------------------------------
+                // REMOVE INLINE COMMENT
+                //-------------------------------------------------
+
+                string displayText = text;
+
+                int commentIndex =
+                    displayText.IndexOf('#');
+
+                if (commentIndex >= 0)
+                {
+                    displayText =
+                        displayText.Substring(
+                            0,
+                            commentIndex)
+                        .Trim();
+                }
+
+                //-------------------------------------------------
+                // PUTENV
+                //-------------------------------------------------
+
+                if (!displayText.StartsWith(
+                    "putenv(",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                int first =
+                    displayText.IndexOf('"');
+
+                int last =
+                    displayText.LastIndexOf('"');
+
+                if (first == -1 ||
+                    last == -1 ||
+                    last <= first)
+                {
+                    continue;
+                }
+
+                string env =
+                    displayText.Substring(
+                        first + 1,
+                        last - first - 1);
+
+                int equalIndex =
+                    env.IndexOf('=');
+
+                if (equalIndex == -1)
+                    continue;
+
+                string parameter =
+                    env.Substring(
+                        0,
+                        equalIndex)
+                    .Trim();
+
+                string value =
+                    env.Substring(
+                        equalIndex + 1)
+                    .Trim();
+
+                dt.Rows.Add(
+                    parameter,
+                    value);
+
+                gridOriginalLineIndexes.Add(
+                    lineIndex);
+            }
+
+            listBox2.Refresh();
+        }
+
+
+        //=========================================================
+        // LOAD TABLE FILE
+        //=========================================================
+
+        private void LoadTableFile(
+            string[] lines,
+            DataTable dt)
+        {
+            bool headerCreated = false;
+
+            // Always show reference header
+            listBox2.Items.Add(
+                "REFERENCE FILES");
+
+            for (int lineIndex = 0;
+                 lineIndex < lines.Length;
+                 lineIndex++)
+            {
+                string line =
+                    lines[lineIndex];
+
+                string text =
+                    line.Trim();
+
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                //-------------------------------------------------
+                // TABLE HEADER
+                //-------------------------------------------------
+
+                if (!headerCreated &&
+                    text.StartsWith("#"))
+                {
+                    string headerText =
+                        text.Substring(1).Trim();
+
+                    string[] headers =
+                        headerText.Split(
+                            new[] { ' ', '\t' },
+                            StringSplitOptions.RemoveEmptyEntries);
+
+                    foreach (string header in headers)
+                    {
+                        dt.Columns.Add(header);
+                    }
+
+                    headerCreated = true;
+
+                    continue;
+                }
+
+                if (!headerCreated)
+                    continue;
+
+                //-------------------------------------------------
+                // REFERENCE
+                //-------------------------------------------------
+
+                if (text.StartsWith("<"))
+                {
+                    string reference =
+                        text.Substring(1).Trim();
+
+                    if (!string.IsNullOrWhiteSpace(reference))
+                    {
+                        AddReferenceToListBox2WithoutDuplicateMessage(
+                            reference);
+                    }
+
+                    continue;
+                }
+
+                //-------------------------------------------------
+                // FULL COMMENT
+                //-------------------------------------------------
+
+                if (text.StartsWith("#"))
+                    continue;
+
+                //-------------------------------------------------
+                // INLINE COMMENT
+                //-------------------------------------------------
+
+                string displayText = text;
+
+                int commentIndex =
+                    displayText.IndexOf('#');
+
+                if (commentIndex >= 0)
+                {
+                    displayText =
+                        displayText.Substring(
+                            0,
+                            commentIndex)
+                        .Trim();
+                }
+
+                if (string.IsNullOrWhiteSpace(displayText))
+                    continue;
+
+                //-------------------------------------------------
+                // SPLIT TABLE VALUES
+                //-------------------------------------------------
+
+                string[] values =
+                    displayText.Split(
+                        new[] { ' ', '\t' },
+                        StringSplitOptions.RemoveEmptyEntries);
+
+                while (dt.Columns.Count <
+                       values.Length)
+                {
+                    dt.Columns.Add("");
+                }
+
+                string[] row =
+                    new string[dt.Columns.Count];
+
+                for (int i = 0;
+                     i < dt.Columns.Count;
+                     i++)
+                {
+                    row[i] =
+                        i < values.Length
+                        ? values[i]
+                        : "";
+                }
+
+                dt.Rows.Add(row);
+
+                gridOriginalLineIndexes.Add(
+                    lineIndex);
+            }
+
+            listBox2.Refresh();
+        }
+
+
+        //=========================================================
+        // CHECK WHETHER REFERENCE ALREADY EXISTS
+        //=========================================================
+
+        private bool ReferenceAlreadyExists(
+            string referenceName)
+        {
+            if (string.IsNullOrWhiteSpace(referenceName))
+                return false;
+
+            string newReference =
+                referenceName
+                .Trim()
+                .TrimStart('<')
+                .Trim();
+
+            for (int i = 0;
+                 i < listBox2.Items.Count;
+                 i++)
+            {
+                string existing =
+                    listBox2.Items[i]
+                    ?.ToString()
+                    ?.Trim() ?? "";
+
+                // Ignore header
+                if (existing.Equals(
+                    "REFERENCE FILES",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                existing =
+                    existing
+                    .TrimStart('<')
+                    .Trim();
+
+                if (existing.Equals(
+                    newReference,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+
+        //=========================================================
+        // ADD REFERENCE WITHOUT MESSAGE
+        // USED WHILE LOADING FILE
+        //=========================================================
+
+        private void AddReferenceToListBox2WithoutDuplicateMessage(
+            string referenceName)
+        {
+            if (string.IsNullOrWhiteSpace(referenceName))
+                return;
+
+            string reference =
+                referenceName
+                .Trim()
+                .TrimStart('<')
+                .Trim();
+
+            if (string.IsNullOrWhiteSpace(reference))
+                return;
+
+            if (ReferenceAlreadyExists(reference))
+                return;
+
+            listBox2.Items.Add(reference);
+        }
+
+
+        //=========================================================
+        // ADD REFERENCE WITH DUPLICATE MESSAGE
+        //=========================================================
+
+        private bool AddReferenceWithDuplicateCheck(
+            string referenceName)
+        {
+            if (string.IsNullOrWhiteSpace(referenceName))
+                return false;
+
+            string reference =
+                referenceName
+                .Trim()
+                .TrimStart('<')
+                .Trim();
+
+            if (string.IsNullOrWhiteSpace(reference))
+                return false;
+
+            if (ReferenceAlreadyExists(reference))
+            {
+                MessageBox.Show(
+                    "File already exists.",
+                    "Duplicate File",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                return false;
+            }
+
+            listBox2.Items.Add(reference);
+
+            listBox2.Refresh();
+
+            return true;
+        }
+
+
+        //=========================================================
+        // SHOW DUPLICATES
+        //=========================================================
+
+        private void ShowDuplicateParameters()
+        {
+            listBox3.Items.Clear();
+
+            if (!currentFileIsPutEnv ||
+                currentDataTable == null ||
+                !currentDataTable.Columns.Contains(
+                    "Parameter"))
+            {
+                return;
+            }
+
+            Dictionary<string, int> parameterCounts =
+                new Dictionary<string, int>(
+                    StringComparer.OrdinalIgnoreCase);
+
+            foreach (DataRow row
+                     in currentDataTable.Rows)
+            {
+                string parameter =
+                    row["Parameter"]
+                    ?.ToString()
+                    ?.Trim() ?? "";
+
+                if (string.IsNullOrWhiteSpace(parameter))
+                    continue;
+
+                if (parameterCounts.ContainsKey(parameter))
+                {
+                    parameterCounts[parameter]++;
+                }
+                else
+                {
+                    parameterCounts[parameter] = 1;
+                }
+            }
+
+            //-----------------------------------------------------
+            // TABLE HEADER
+            //-----------------------------------------------------
+
+            listBox3.Items.Add(
+                string.Format(
+                    "{0,-8}{1,-30}{2,-10}",
+                    "Sl No",
+                    "Parameter Name",
+                    "Repeated"));
+
+            //-----------------------------------------------------
+            // SEPARATOR
+            //-----------------------------------------------------
+
+            listBox3.Items.Add(
+                new string('-', 48));
+
+            int slNo = 1;
+
+            //-----------------------------------------------------
+            // DUPLICATES
+            //-----------------------------------------------------
+
+            foreach (KeyValuePair<string, int> item
+                     in parameterCounts)
+            {
+                if (item.Value <= 1)
+                    continue;
+
+                listBox3.Items.Add(
+                    string.Format(
+                        "{0,-8}{1,-30}{2,-10}",
+                        slNo,
+                        item.Key,
+                        item.Value));
+
+                slNo++;
+            }
+
+            //-----------------------------------------------------
+            // NO DUPLICATES
+            //-----------------------------------------------------
+
+            if (slNo == 1)
+            {
+                listBox3.Items.Add(
+                    "No duplicate parameters found.");
+            }
+
+            listBox3.Refresh();
+        }
+
+
+        //=========================================================
+        // LISTBOX3 CLICK
+        //=========================================================
+
+        private void listBox3_SelectedIndexChanged(
+            object sender,
+            EventArgs e)
+        {
+            selectedDuplicateParameter = "";
+
+            if (listBox3.SelectedIndex < 0 ||
+                listBox3.SelectedItem == null)
+            {
+                dataGridView1.Refresh();
+                return;
+            }
+
+            string selectedText =
+                listBox3.SelectedItem.ToString();
+
+            //-----------------------------------------------------
+            // IGNORE HEADER
+            //-----------------------------------------------------
+
+            if (selectedText.StartsWith("Sl No") ||
+                selectedText.StartsWith("---") ||
+                selectedText.StartsWith(
+                    "No duplicate"))
+            {
+                dataGridView1.Refresh();
+                return;
+            }
+
+            //-----------------------------------------------------
+            // GET PARAMETER
+            //-----------------------------------------------------
+
+            string[] parts =
+                selectedText.Split(
+                    new[] { ' ' },
+                    StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length >= 3)
+            {
+                selectedDuplicateParameter =
+                    string.Join(
+                        " ",
+                        parts,
+                        1,
+                        parts.Length - 2)
+                    .Trim();
+            }
+
+            dataGridView1.Refresh();
+        }
+
+
+        //=========================================================
+        // DATAGRIDVIEW FORMATTING
+        //=========================================================
+
+        private void dataGridView1_CellFormatting(
+            object sender,
+            DataGridViewCellFormattingEventArgs e)
+        {
+            if (e.RowIndex < 0)
+                return;
+
+            if (e.RowIndex >=
+                dataGridView1.Rows.Count)
+            {
+                return;
+            }
+
+            DataGridViewRow row =
+                dataGridView1.Rows[e.RowIndex];
+
+            if (row.IsNewRow)
+                return;
+
+            //-----------------------------------------------------
+            // SECTION HEADER
+            //-----------------------------------------------------
+
+            if (e.RowIndex <
+                gridOriginalLineIndexes.Count)
+            {
+                int tracking =
+                    gridOriginalLineIndexes[e.RowIndex];
+
+                if (tracking <= -2)
+                {
+                    e.CellStyle.Font =
+                        new Font(
+                            dataGridView1.Font,
+                            FontStyle.Bold);
+
+                    e.CellStyle.ForeColor =
+                        Color.White;
+
+                    e.CellStyle.BackColor =
+                        Color.DarkBlue;
+
+                    e.CellStyle.SelectionForeColor =
+                        Color.White;
+
+                    e.CellStyle.SelectionBackColor =
+                        Color.DarkBlue;
+
+                    e.CellStyle.Alignment =
+                        DataGridViewContentAlignment.MiddleLeft;
+
+                    return;
+                }
+
+                //-------------------------------------------------
+                // NEW ROW
+                //-------------------------------------------------
+
+                if (tracking == -1)
+                {
+                    e.CellStyle.Font =
+                        new Font(
+                            dataGridView1.Font,
+                            FontStyle.Bold);
+                }
+            }
+
+            //-----------------------------------------------------
+            // DUPLICATE HIGHLIGHT
+            //-----------------------------------------------------
+
+            if (!string.IsNullOrWhiteSpace(
+                selectedDuplicateParameter))
+            {
+                string parameter =
+                    row.Cells.Count > 0
+                    ? row.Cells[0]
+                        .Value?
+                        .ToString()
+                        .Trim()
+                    : "";
+
+                if (string.Equals(
+                    parameter,
+                    selectedDuplicateParameter,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    e.CellStyle.ForeColor =
+                        Color.Red;
+
+                    e.CellStyle.Font =
+                        new Font(
+                            dataGridView1.Font,
+                            FontStyle.Bold);
+                }
+            }
+        }
+
+
+        //=========================================================
+        // CELL EDITED
+        //=========================================================
+
+        private void dataGridView1_CellEndEdit(
+            object sender,
+            DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0)
+                return;
+
+            if (isLoadingFile ||
+                isAutoSaving)
+            {
+                return;
+            }
+
+            ShowDuplicateParameters();
+
+            AutoSaveFile();
+        }
+
+
+        //=========================================================
+        // AUTO SAVE
+        //=========================================================
+
+        private void AutoSaveFile()
+        {
+            if (isLoadingFile ||
+                isAutoSaving)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(
+                currentFilePath))
+            {
+                return;
+            }
+
+            if (!File.Exists(
+                currentFilePath))
+            {
+                return;
+            }
+
+            try
+            {
+                isAutoSaving = true;
+
+                dataGridView1.EndEdit();
+
+                if (currentFileIsPutEnv)
+                {
+                    SavePutEnvFile();
+                }
+                else
+                {
+                    SaveTableFile();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Auto-save error:\n\n" +
+                    ex.Message,
+                    "Auto Save Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            finally
+            {
+                isAutoSaving = false;
+            }
+        }
+
+
+        //=========================================================
+        // CREATE GRID CONTEXT MENU
+        //=========================================================
+
+        private void CreateDataGridViewContextMenu()
+        {
+            ContextMenuStrip contextMenu =
+                new ContextMenuStrip();
+
+            ToolStripMenuItem insertAboveItem =
+                new ToolStripMenuItem(
+                    "Insert Row Above");
+
+            insertAboveItem.Click +=
+                InsertRowAbove_Click;
+
+            ToolStripMenuItem insertBelowItem =
+                new ToolStripMenuItem(
+                    "Insert Row Below");
+
+            insertBelowItem.Click +=
+                InsertRowBelow_Click;
+
+            ToolStripMenuItem deleteItem =
+                new ToolStripMenuItem(
+                    "Delete Row");
+
+            deleteItem.Click +=
+                DeleteSelectedRow_Click;
+
+            contextMenu.Items.Add(
+                insertAboveItem);
+
+            contextMenu.Items.Add(
+                insertBelowItem);
+
+            contextMenu.Items.Add(
+                new ToolStripSeparator());
+
+            contextMenu.Items.Add(
+                deleteItem);
+
+            dataGridView1.ContextMenuStrip =
+                contextMenu;
+
+            dataGridView1.CellMouseDown +=
+                dataGridView1_CellMouseDown;
+        }
+
+
+        //=========================================================
+        // GRID RIGHT CLICK
+        //=========================================================
+
+        private void dataGridView1_CellMouseDown(
+            object sender,
+            DataGridViewCellMouseEventArgs e)
+        {
+            if (e.RowIndex < 0)
+                return;
+
+            if (e.Button == MouseButtons.Right)
+            {
+                dataGridView1.ClearSelection();
+
+                dataGridView1.Rows[e.RowIndex]
+                    .Selected = true;
+
+                int columnIndex =
+                    e.ColumnIndex;
+
+                if (columnIndex < 0)
+                    columnIndex = 0;
+
+                if (dataGridView1.Columns.Count > 0)
+                {
+                    dataGridView1.CurrentCell =
+                        dataGridView1.Rows[e.RowIndex]
+                            .Cells[columnIndex];
+                }
+            }
+        }
+
+
+        //=========================================================
+        // INSERT ABOVE
+        //=========================================================
+
+        private void InsertRowAbove_Click(
+            object sender,
+            EventArgs e)
+        {
+            if (dataGridView1.CurrentCell == null)
+                return;
+
+            int rowIndex =
+                dataGridView1.CurrentCell.RowIndex;
+
+            if (rowIndex < 0)
+                return;
+
+            InsertNewRow(rowIndex);
+        }
+
+
+        //=========================================================
+        // INSERT BELOW
+        //=========================================================
+
+        private void InsertRowBelow_Click(
+            object sender,
+            EventArgs e)
+        {
+            if (dataGridView1.CurrentCell == null)
+                return;
+
+            int rowIndex =
+                dataGridView1.CurrentCell.RowIndex;
+
+            if (rowIndex < 0)
+                return;
+
+            InsertNewRow(rowIndex + 1);
+        }
+
+
+        //=========================================================
+        // INSERT NEW ROW
+        //=========================================================
+
+        private void InsertNewRow(
+            int rowIndex)
+        {
+            DataTable dt =
+                dataGridView1.DataSource
+                as DataTable;
+
+            if (dt == null)
+            {
+                MessageBox.Show(
+                    "No file is loaded.",
+                    "Insert Row",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                return;
+            }
+
+            if (rowIndex < 0)
+                rowIndex = 0;
+
+            if (rowIndex > dt.Rows.Count)
+                rowIndex = dt.Rows.Count;
+
+            DataRow newRow =
+                dt.NewRow();
+
+            for (int i = 0;
+                 i < dt.Columns.Count;
+                 i++)
+            {
+                newRow[i] = "";
+            }
+
+            dt.Rows.InsertAt(
+                newRow,
+                rowIndex);
+
+            gridOriginalLineIndexes.Insert(
+                rowIndex,
+                -1);
+
+            dataGridView1.ClearSelection();
+
+            if (rowIndex <
+                dataGridView1.Rows.Count)
+            {
+                dataGridView1.Rows[rowIndex]
+                    .Selected = true;
+
+                if (dataGridView1.Columns.Count > 0)
+                {
+                    dataGridView1.CurrentCell =
+                        dataGridView1.Rows[rowIndex]
+                            .Cells[0];
+
+                    dataGridView1.BeginEdit(true);
+                }
+            }
+
+            ShowDuplicateParameters();
+        }
+
+
+        //=========================================================
+        // DELETE GRID ROW
+        //=========================================================
+
+        private void DeleteSelectedRow_Click(
+            object sender,
+            EventArgs e)
+        {
+            if (dataGridView1.CurrentCell == null)
+                return;
+
+            int rowIndex =
+                dataGridView1.CurrentCell.RowIndex;
+
+            if (rowIndex < 0 ||
+                rowIndex >= dataGridView1.Rows.Count)
+            {
+                return;
+            }
+
+            if (rowIndex >=
+                gridOriginalLineIndexes.Count)
+            {
+                return;
+            }
+
+            //-----------------------------------------------------
+            // SECTION HEADER
+            //-----------------------------------------------------
+
+            if (gridOriginalLineIndexes[rowIndex] <= -2)
+            {
+                MessageBox.Show(
+                    "Section headers cannot be deleted.",
+                    "Delete Row",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+
+                return;
+            }
+
+            DialogResult result =
+                MessageBox.Show(
+                    "Do you want to delete this row?",
+                    "Delete Row",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+            if (result != DialogResult.Yes)
+                return;
+
+            DataTable dt =
+                dataGridView1.DataSource
+                as DataTable;
+
+            if (dt == null)
+                return;
+
+            if (rowIndex < dt.Rows.Count)
+            {
+                dt.Rows.RemoveAt(rowIndex);
+            }
+
+            if (rowIndex <
+                gridOriginalLineIndexes.Count)
+            {
+                gridOriginalLineIndexes.RemoveAt(
+                    rowIndex);
+            }
+
+            ShowDuplicateParameters();
+
+            AutoSaveFile();
+        }
+
+
+        //=========================================================
+        // CHECK PUTENV DATA LINE
+        //=========================================================
+
+        private bool IsPutEnvDataLine(
+            string line)
+        {
+            string text =
+                line.Trim();
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            if (text.StartsWith("#"))
+                return false;
+
+            if (text.StartsWith("<"))
+                return false;
+
+            string dataPart = text;
+
+            int commentIndex =
+                dataPart.IndexOf('#');
+
+            if (commentIndex >= 0)
+            {
+                dataPart =
+                    dataPart.Substring(
+                        0,
+                        commentIndex)
+                    .Trim();
+            }
+
+            return dataPart.StartsWith(
+                "putenv(",
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+
+        //=========================================================
+        // CHECK TABLE DATA LINE
+        //=========================================================
+
+        private bool IsTableDataLine(
+            string line)
+        {
+            string text =
+                line.Trim();
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            if (text.StartsWith("#"))
+                return false;
+
+            if (text.StartsWith("<"))
+                return false;
+
+            return true;
+        }
+
+
+        //=========================================================
+        // GET INLINE COMMENT
+        //=========================================================
+
+        private string GetComment(
+            string line)
+        {
+            int commentIndex =
+                line.IndexOf('#');
+
+            if (commentIndex >= 0)
+            {
+                return line.Substring(
+                    commentIndex);
+            }
+
+            return "";
+        }
+
+
+        //=========================================================
+        // CREATE TABLE LINE
+        //=========================================================
+
+        private string CreateTableLine(
+            DataGridViewRow row)
+        {
+            List<string> values =
+                new List<string>();
+
+            for (int i = 0;
+                 i < dataGridView1.Columns.Count;
+                 i++)
+            {
+                string value =
+                    row.Cells[i]
+                        .Value?
+                        .ToString() ?? "";
+
+                values.Add(
+                    value.Trim());
+            }
+
+            return string.Join(
+                "\t",
+                values);
+        }
+
+
+        //=========================================================
+        // CREATE PUTENV LINE
+        //=========================================================
+
+        private string CreatePutEnvLine(
+            DataGridViewRow row)
+        {
+            if (row.Cells.Count < 2)
+                return "";
+
+            string parameter =
+                row.Cells[0]
+                    .Value?
+                    .ToString()
+                    .Trim() ?? "";
+
+            string value =
+                row.Cells[1]
+                    .Value?
+                    .ToString()
+                    .Trim() ?? "";
+
+            if (string.IsNullOrWhiteSpace(parameter))
+                return "";
+
+            return
+                $"putenv(\"{parameter}={value}\");";
+        }
+
+
+        //=========================================================
+        // GET ORIGINAL LINE
+        //=========================================================
+
+        private int GetOriginalLineFromTracking(
+            int tracking)
+        {
+            if (tracking >= 0)
+                return tracking;
+
+            if (tracking <= -2)
+                return (-tracking) - 2;
+
+            return -1;
+        }
+
+
+        //=========================================================
+        // SAVE PUTENV FILE
+        //=========================================================
+
+        private void SavePutEnvFile()
+        {
+            Dictionary<int, DataGridViewRow>
+                originalRows =
+                    new Dictionary<int, DataGridViewRow>();
+
+            //-----------------------------------------------------
+            // ORIGINAL GRID ROWS
+            //-----------------------------------------------------
+
+            for (int gridIndex = 0;
+                 gridIndex < dataGridView1.Rows.Count;
+                 gridIndex++)
+            {
+                DataGridViewRow row =
+                    dataGridView1.Rows[gridIndex];
+
+                if (row.IsNewRow)
+                    continue;
+
+                if (gridIndex >=
+                    gridOriginalLineIndexes.Count)
+                {
+                    continue;
+                }
+
+                int tracking =
+                    gridOriginalLineIndexes[gridIndex];
+
+                if (tracking >= 0)
+                {
+                    originalRows[tracking] = row;
+                }
+            }
+
+            //-----------------------------------------------------
+            // NEW ROWS
+            //-----------------------------------------------------
+
+            Dictionary<int, List<string>>
+                insertAfter =
+                    new Dictionary<int, List<string>>();
+
+            List<string> insertAtBeginning =
+                new List<string>();
+
+            for (int gridIndex = 0;
+                 gridIndex < dataGridView1.Rows.Count;
+                 gridIndex++)
+            {
+                if (gridIndex >=
+                    gridOriginalLineIndexes.Count)
+                {
+                    continue;
+                }
+
+                if (gridOriginalLineIndexes[gridIndex] != -1)
+                    continue;
+
+                DataGridViewRow newRow =
+                    dataGridView1.Rows[gridIndex];
+
+                string newLine =
+                    CreatePutEnvLine(newRow);
+
+                if (string.IsNullOrWhiteSpace(newLine))
+                    continue;
+
+                int previousOriginalLine = -1;
+
+                for (int j = gridIndex - 1;
+                     j >= 0;
+                     j--)
+                {
+                    int tracking =
+                        gridOriginalLineIndexes[j];
+
+                    if (tracking >= 0 ||
+                        tracking <= -2)
+                    {
+                        previousOriginalLine =
+                            GetOriginalLineFromTracking(
+                                tracking);
+
+                        break;
+                    }
+                }
+
+                if (previousOriginalLine == -1)
+                {
+                    insertAtBeginning.Add(
+                        newLine);
+                }
+                else
+                {
+                    if (!insertAfter.ContainsKey(
+                        previousOriginalLine))
+                    {
+                        insertAfter[
+                            previousOriginalLine] =
+                            new List<string>();
+                    }
+
+                    insertAfter[
+                        previousOriginalLine]
+                        .Add(newLine);
+                }
+            }
+
+            //-----------------------------------------------------
+            // FINAL LINES
+            //-----------------------------------------------------
+
+            List<string> finalLines =
+                new List<string>();
+
+            foreach (string line
+                     in insertAtBeginning)
+            {
+                finalLines.Add(line);
+            }
+
+            for (int lineIndex = 0;
+                 lineIndex < originalFileLines.Count;
+                 lineIndex++)
+            {
+                string originalLine =
+                    originalFileLines[lineIndex];
+
+                //-------------------------------------------------
+                // REMOVE OLD REFERENCES
+                //-------------------------------------------------
+
+                if (originalLine.TrimStart()
+                    .StartsWith("<"))
+                {
+                    continue;
+                }
+
+                //-------------------------------------------------
+                // PUTENV DATA
+                //-------------------------------------------------
+
+                if (IsPutEnvDataLine(originalLine))
+                {
+                    if (originalRows.ContainsKey(
+                        lineIndex))
+                    {
+                        DataGridViewRow row =
+                            originalRows[lineIndex];
+
+                        string newLine =
+                            CreatePutEnvLine(row);
+
+                        if (!string.IsNullOrWhiteSpace(
+                            newLine))
+                        {
+                            string comment =
+                                GetComment(originalLine);
+
+                            finalLines.Add(
+                                newLine +
+                                comment);
+                        }
+                    }
+                }
+                else
+                {
+                    finalLines.Add(
+                        originalLine);
+                }
+
+                //-------------------------------------------------
+                // INSERT NEW ROWS
+                //-------------------------------------------------
+
+                if (insertAfter.ContainsKey(
+                    lineIndex))
+                {
+                    foreach (string newLine
+                             in insertAfter[lineIndex])
+                    {
+                        finalLines.Add(newLine);
+                    }
+                }
+            }
+
+            //-----------------------------------------------------
+            // ADD REFERENCES
+            // SKIP HEADER
+            //-----------------------------------------------------
+
+            foreach (object item
+                     in listBox2.Items)
+            {
+                if (item == null)
+                    continue;
+
+                string reference =
+                    item.ToString().Trim();
+
+                if (reference.Equals(
+                    "REFERENCE FILES",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                reference =
+                    reference
+                    .TrimStart('<')
+                    .Trim();
+
+                if (string.IsNullOrWhiteSpace(reference))
+                    continue;
+
+                finalLines.Add(
+                    "<" + reference);
+            }
+
+            //-----------------------------------------------------
+            // SAVE
+            //-----------------------------------------------------
+
+            File.WriteAllLines(
+                currentFilePath,
+                finalLines);
+
+            originalFileLines =
+                finalLines.ToList();
+
+            LoadFile(
+                currentFilePath);
+        }
+
+
+        //=========================================================
+        // SAVE TABLE FILE
+        //=========================================================
+
+        private void SaveTableFile()
+        {
+            Dictionary<int, DataGridViewRow>
+                originalRows =
+                    new Dictionary<int, DataGridViewRow>();
+
+            //-----------------------------------------------------
+            // ORIGINAL ROWS
+            //-----------------------------------------------------
+
+            for (int gridIndex = 0;
+                 gridIndex < dataGridView1.Rows.Count;
+                 gridIndex++)
+            {
+                DataGridViewRow row =
+                    dataGridView1.Rows[gridIndex];
+
+                if (row.IsNewRow)
+                    continue;
+
+                if (gridIndex >=
+                    gridOriginalLineIndexes.Count)
+                {
+                    continue;
+                }
+
+                int tracking =
+                    gridOriginalLineIndexes[gridIndex];
+
+                if (tracking >= 0)
+                {
+                    originalRows[tracking] = row;
+                }
+            }
+
+            //-----------------------------------------------------
+            // NEW ROWS
+            //-----------------------------------------------------
+
+            Dictionary<int, List<string>>
+                insertAfter =
+                    new Dictionary<int, List<string>>();
+
+            List<string> beginningRows =
+                new List<string>();
+
+            for (int gridIndex = 0;
+                 gridIndex < dataGridView1.Rows.Count;
+                 gridIndex++)
+            {
+                if (gridIndex >=
+                    gridOriginalLineIndexes.Count)
+                {
+                    continue;
+                }
+
+                if (gridOriginalLineIndexes[gridIndex] != -1)
+                    continue;
+
+                DataGridViewRow newRow =
+                    dataGridView1.Rows[gridIndex];
+
+                string newLine =
+                    CreateTableLine(newRow);
+
+                if (string.IsNullOrWhiteSpace(newLine))
+                    continue;
+
+                int previousOriginal = -1;
+
+                for (int j = gridIndex - 1;
+                     j >= 0;
+                     j--)
+                {
+                    int tracking =
+                        gridOriginalLineIndexes[j];
+
+                    if (tracking >= 0)
+                    {
+                        previousOriginal =
+                            tracking;
+
+                        break;
+                    }
+                }
+
+                if (previousOriginal == -1)
+                {
+                    beginningRows.Add(
+                        newLine);
+                }
+                else
+                {
+                    if (!insertAfter.ContainsKey(
+                        previousOriginal))
+                    {
+                        insertAfter[
+                            previousOriginal] =
+                            new List<string>();
+                    }
+
+                    insertAfter[
+                        previousOriginal]
+                        .Add(newLine);
+                }
+            }
+
+            //-----------------------------------------------------
+            // FINAL LINES
+            //-----------------------------------------------------
+
+            List<string> finalLines =
+                new List<string>();
+
+            foreach (string line
+                     in beginningRows)
+            {
+                finalLines.Add(line);
+            }
+
+            for (int lineIndex = 0;
+                 lineIndex < originalFileLines.Count;
+                 lineIndex++)
+            {
+                string originalLine =
+                    originalFileLines[lineIndex];
+
+                //-------------------------------------------------
+                // REMOVE OLD REFERENCES
+                //-------------------------------------------------
+
+                if (originalLine.TrimStart()
+                    .StartsWith("<"))
+                {
+                    continue;
+                }
+
+                //-------------------------------------------------
+                // TABLE DATA
+                //-------------------------------------------------
+
+                if (IsTableDataLine(originalLine))
+                {
+                    if (originalRows.ContainsKey(
+                        lineIndex))
+                    {
+                        DataGridViewRow row =
+                            originalRows[lineIndex];
+
+                        string newData =
+                            CreateTableLine(row);
+
+                        if (!string.IsNullOrWhiteSpace(
+                            newData))
+                        {
+                            string comment =
+                                GetComment(originalLine);
+
+                            finalLines.Add(
+                                newData +
+                                comment);
+                        }
+                    }
+                }
+                else
+                {
+                    finalLines.Add(
+                        originalLine);
+                }
+
+                //-------------------------------------------------
+                // INSERT NEW ROW
+                //-------------------------------------------------
+
+                if (insertAfter.ContainsKey(
+                    lineIndex))
+                {
+                    foreach (string newLine
+                             in insertAfter[lineIndex])
+                    {
+                        finalLines.Add(newLine);
+                    }
+                }
+            }
+
+            //-----------------------------------------------------
+            // ADD REFERENCES
+            // SKIP HEADER
+            //-----------------------------------------------------
+
+            foreach (object item
+                     in listBox2.Items)
+            {
+                if (item == null)
+                    continue;
+
+                string reference =
+                    item.ToString().Trim();
+
+                if (reference.Equals(
+                    "REFERENCE FILES",
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                reference =
+                    reference
+                    .TrimStart('<')
+                    .Trim();
+
+                if (string.IsNullOrWhiteSpace(reference))
+                    continue;
+
+                finalLines.Add(
+                    "<" + reference);
+            }
+
+            //-----------------------------------------------------
+            // SAVE
+            //-----------------------------------------------------
+
+            File.WriteAllLines(
+                currentFilePath,
+                finalLines);
+
+            originalFileLines =
+                finalLines.ToList();
+
+            LoadFile(
+                currentFilePath);
+        }
+
+
+        //=========================================================
+        // CRC32
+        //=========================================================
+
+        private string CalculateChecksumFromText(
+            string content)
+        {
+            byte[] bytes =
+                Encoding.UTF8.GetBytes(content);
+
+            uint crc =
+                0xFFFFFFFF;
+
+            foreach (byte b in bytes)
+            {
+                crc ^= b;
+
+                for (int i = 0;
+                     i < 8;
+                     i++)
+                {
+                    if ((crc & 1) != 0)
+                    {
+                        crc =
+                            (crc >> 1) ^
+                            0xEDB88320;
+                    }
+                    else
+                    {
+                        crc >>= 1;
+                    }
+                }
+            }
+
+            crc ^= 0xFFFFFFFF;
+
+            return crc.ToString("X8");
+        }
+
+
+        //=========================================================
+        // BROWSE REFERENCE FILE
+        //=========================================================
+
+        private void btnBrowse_Click(
+            object sender,
+            EventArgs e)
+        {
+            using (OpenFileDialog ofd =
+                   new OpenFileDialog())
+            {
+                ofd.Title =
+                    "Select Reference File";
+
+                ofd.Filter =
+                    "Text Files (*.txt)|*.txt|" +
+                    "All Files (*.*)|*.*";
+
+                if (ofd.ShowDialog() ==
+                    DialogResult.OK)
+                {
+                    string fileName =
+                        Path.GetFileName(
+                            ofd.FileName);
+
+                    // DUPLICATE CHECK
+                    if (!AddReferenceWithDuplicateCheck(
+                        fileName))
+                    {
+                        return;
+                    }
+
+                    AutoSaveFile();
+                }
+            }
+        }
+
+
+        //=========================================================
+        // LISTBOX2 CONTEXT MENU
+        //=========================================================
+
+        private void CreateListBox2ContextMenu()
+        {
+            ContextMenuStrip contextMenu =
+                new ContextMenuStrip();
+
+            ToolStripMenuItem deleteItem =
+                new ToolStripMenuItem(
+                    "Delete Reference");
+
+            deleteItem.Click +=
+                DeleteListBox2Item_Click;
+
+            contextMenu.Items.Add(
+                deleteItem);
+
+            listBox2.ContextMenuStrip =
+                contextMenu;
+
+            listBox2.MouseDown +=
+                listBox2_MouseDown;
+        }
+
+
+        //=========================================================
+        // LISTBOX2 RIGHT CLICK
+        //=========================================================
+
+        private void listBox2_MouseDown(
+            object sender,
+            MouseEventArgs e)
+        {
+            if (e.Button ==
+                MouseButtons.Right)
+            {
+                int index =
+                    listBox2.IndexFromPoint(
+                        e.Location);
+
+                if (index !=
+                    ListBox.NoMatches)
+                {
+                    listBox2.SelectedIndex =
+                        index;
+                }
+            }
+        }
+
+
+        //=========================================================
+        // DELETE LISTBOX2 REFERENCE
+        //=========================================================
+
+        private void DeleteListBox2Item_Click(
+            object sender,
+            EventArgs e)
+        {
+            if (listBox2.SelectedIndex == -1)
+                return;
+
+            //-----------------------------------------------------
+            // DO NOT DELETE HEADER
+            //-----------------------------------------------------
+
+            if (listBox2.SelectedIndex == 0 &&
+                listBox2.SelectedItem
+                    .ToString()
+                    .Equals(
+                        "REFERENCE FILES",
+                        StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(
+                    "The REFERENCE FILES header cannot be deleted.",
+                    "Delete Reference",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+
+                return;
+            }
+
+            string referenceName =
+                listBox2.SelectedItem
+                .ToString();
+
+            DialogResult result =
+                MessageBox.Show(
+                    "Do you want to delete this reference?\n\n" +
+                    "<" +
+                    referenceName,
+                    "Delete Reference",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning);
+
+            if (result !=
+                DialogResult.Yes)
+            {
+                return;
+            }
+
+            try
+            {
+                listBox2.Items.RemoveAt(
+                    listBox2.SelectedIndex);
+
+                AutoSaveFile();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Error deleting reference:\n\n" +
+                    ex.Message,
+                    "Delete Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+
+        //=========================================================
+        // LISTBOX1 CONTEXT MENU
+        //=========================================================
+
+        private void CreateListBox1ContextMenu()
+        {
+            ContextMenuStrip contextMenu =
+                new ContextMenuStrip();
+
+            ToolStripMenuItem deleteItem =
+                new ToolStripMenuItem(
+                    "Delete File");
+
+            deleteItem.Click +=
+                DeleteFile_Click;
+
+            contextMenu.Items.Add(
+                deleteItem);
+
+            listBox1.ContextMenuStrip =
+                contextMenu;
+
+            listBox1.MouseDown +=
+                listBox1_MouseDown;
+        }
+
+
+        //=========================================================
+        // LISTBOX1 RIGHT CLICK
+        //=========================================================
+
+        private void listBox1_MouseDown(
+            object sender,
+            MouseEventArgs e)
+        {
+            if (e.Button ==
+                MouseButtons.Right)
+            {
+                int index =
+                    listBox1.IndexFromPoint(
+                        e.Location);
+
+                if (index !=
+                    ListBox.NoMatches)
+                {
+                    listBox1.SelectedIndex =
+                        index;
+                }
+            }
+        }
+
+
+        //=========================================================
+        // DELETE FILE
+        //=========================================================
+
+        private void DeleteFile_Click(
+            object sender,
+            EventArgs e)
+        {
+            if (listBox1.SelectedIndex == -1)
+                return;
+
+            string fileName =
+                listBox1.SelectedItem
+                .ToString();
+
+            string filePath =
+                Path.Combine(
+                    currentFolder,
+                    fileName);
+
+            DialogResult result =
+                MessageBox.Show(
+                    "Do you want to delete this file?\n\n" +
+                    fileName,
+                    "Delete File",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning);
+
+            if (result !=
+                DialogResult.Yes)
+            {
+                return;
+            }
+
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    File.Delete(filePath);
+                }
+
+                listBox1.Items.RemoveAt(
+                    listBox1.SelectedIndex);
+
+                ClearCurrentFile();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Error deleting file:\n\n" +
+                    ex.Message,
+                    "Delete Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+
+        //=========================================================
+        // CLEAR CURRENT FILE
+        //=========================================================
+
+        private void ClearCurrentFile()
+        {
+            currentFilePath = "";
+
+            dataGridView1.DataSource = null;
+
+            dataGridView1.Rows.Clear();
+            dataGridView1.Columns.Clear();
+
+            listBox2.Items.Clear();
+            listBox3.Items.Clear();
+
+            originalFileLines.Clear();
+
+            gridOriginalLineIndexes.Clear();
+
+            currentDataTable = null;
+
+            currentFileIsPutEnv = false;
+
+            selectedDuplicateParameter = "";
+
+            dataGridView1.Refresh();
+        }
+
+
+        //=========================================================
+        // LISTBOX2 SELECTED
+        //=========================================================
+
+        private void listBox2_SelectedIndexChanged(
+            object sender,
+            EventArgs e)
+        {
+            // No automatic action.
+        }
+
+
+        //=========================================================
+        // ADD FILE BUTTON
+        //=========================================================
+
+        private void button2_Click(
+            object sender,
+            EventArgs e)
+        {
+            using (OpenFileDialog ofd =
+                   new OpenFileDialog())
+            {
+                ofd.Title =
+                    "Select File";
+
+                ofd.Filter =
+                    "Text Files (*.txt)|*.txt|" +
+                    "All Files (*.*)|*.*";
+
+                if (ofd.ShowDialog() !=
+                    DialogResult.OK)
+                {
+                    return;
+                }
+
+                string sourceFile =
+                    ofd.FileName;
+
+                string fileName =
+                    Path.GetFileName(
+                        sourceFile);
+
+                string destinationFile =
+                    Path.Combine(
+                        currentFolder,
+                        fileName);
+
+                //-------------------------------------------------
+                // DUPLICATE CHECK
+                //-------------------------------------------------
+
+                if (File.Exists(
+                    destinationFile))
+                {
+                    MessageBox.Show(
+                        "File already exists.",
+                        "Duplicate File",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+
+                    return;
+                }
+
+                try
+                {
+                    File.Copy(
+                        sourceFile,
+                        destinationFile);
+
+                    //-------------------------------------------------
+                    // REFRESH LISTBOX1
+                    //-------------------------------------------------
+
+                    LoadReferenceFiles();
+
+                    MessageBox.Show(
+                        "File added successfully.",
+                        "Success",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        "Error:\n\n" +
+                        ex.Message,
+                        "Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                }
+            }
+        }
+
+
+        //=========================================================
+        // DELETE MAIN FILE BUTTON
+        //=========================================================
+
+        private void button3_Click(
+            object sender,
+            EventArgs e)
+        {
+            if (listBox1.SelectedIndex == -1)
+            {
+                MessageBox.Show(
+                    "Please select a file.");
+
+                return;
+            }
+
+            string fileName =
+                listBox1.SelectedItem
+                .ToString();
+
+            DialogResult result =
+                MessageBox.Show(
+                    $"Do you want to delete '{fileName}'?",
+                    "Confirm Delete",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+            if (result !=
+                DialogResult.Yes)
+            {
+                return;
+            }
+
+            string filePath =
+                Path.Combine(
+                    currentFolder,
+                    fileName);
+
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    File.Delete(filePath);
+                }
+
+                LoadReferenceFiles();
+
+                ClearCurrentFile();
+
+                MessageBox.Show(
+                    $"'{fileName}' has been deleted.",
+                    "Deleted",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Error deleting file:\n\n" +
+                    ex.Message,
+                    "Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+
+        //=========================================================
+        // GRID CELL CONTENT CLICK
+        //=========================================================
+
+        private void dataGridView1_CellContentClick(
+            object sender,
+            DataGridViewCellEventArgs e)
+        {
+        }
+
+
+        //=========================================================
+        // CHECKSUM LIST
+        //=========================================================
+
+        private void checksumListToolStripMenuItem_Click(
+            object sender,
+            EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(
+                currentFolder) ||
+                !Directory.Exists(
+                    currentFolder))
+            {
+                MessageBox.Show(
+                    "Folder is not selected.",
+                    "Checksum List",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                return;
+            }
+
+            try
+            {
+                string[] files =
+                    Directory.GetFiles(
+                        currentFolder,
+                        "*.txt");
+
+                if (files.Length == 0)
+                {
+                    MessageBox.Show(
+                        "No text files found in the folder.",
+                        "Checksum List",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+
+                    return;
+                }
+
+                //-------------------------------------------------
+                // CHECKSUM FORM
+                //-------------------------------------------------
+
+                Form checksumForm =
+                    new Form();
+
+                checksumForm.Text =
+                    "Checksum List";
+
+                checksumForm.StartPosition =
+                    FormStartPosition.CenterScreen;
+
+                checksumForm.Size =
+                    new Size(800, 500);
+
+                //-------------------------------------------------
+                // TOP PANEL
+                //-------------------------------------------------
+
+                Panel topPanel =
+                    new Panel();
+
+                topPanel.Dock =
+                    DockStyle.Top;
+
+                topPanel.Height =
+                    45;
+
+                //-------------------------------------------------
+                // PRINT BUTTON
+                //-------------------------------------------------
+
+                Button printButton =
+                    new Button();
+
+                printButton.Text =
+                    "Print";
+
+                printButton.Width =
+                    90;
+
+                printButton.Height =
+                    30;
+
+                printButton.Left =
+                    10;
+
+                printButton.Top =
+                    7;
+
+                topPanel.Controls.Add(
+                    printButton);
+
+                //-------------------------------------------------
+                // CHECKSUM GRID
+                //-------------------------------------------------
+
+                DataGridView checksumGrid =
+                    new DataGridView();
+
+                checksumGrid.Dock =
+                    DockStyle.Fill;
+
+                checksumGrid.AutoSizeColumnsMode =
+                    DataGridViewAutoSizeColumnsMode.Fill;
+
+                checksumGrid.AllowUserToAddRows =
+                    false;
+
+                checksumGrid.AllowUserToDeleteRows =
+                    false;
+
+                checksumGrid.ReadOnly =
+                    true;
+
+                checksumGrid.RowHeadersVisible =
+                    false;
+
+                checksumGrid.SelectionMode =
+                    DataGridViewSelectionMode.FullRowSelect;
+
+                checksumGrid.MultiSelect =
+                    false;
+
+                checksumGrid.EnableHeadersVisualStyles =
+                    false;
+
+                checksumGrid.ColumnHeadersDefaultCellStyle.Font =
+                    new Font(
+                        checksumGrid.Font,
+                        FontStyle.Bold);
+
+                checksumGrid.ColumnHeadersDefaultCellStyle.Alignment =
+                    DataGridViewContentAlignment.MiddleCenter;
+
+                //-------------------------------------------------
+                // COLUMNS
+                //-------------------------------------------------
+
+                checksumGrid.Columns.Add(
+                    "SerialNo",
+                    "S.No");
+
+                checksumGrid.Columns.Add(
+                    "FileName",
+                    "File Name");
+
+                checksumGrid.Columns.Add(
+                    "Checksum",
+                    "Checksum");
+
+                //-------------------------------------------------
+                // S.NO SMALL
+                //-------------------------------------------------
+
+                checksumGrid.Columns[
+                    "SerialNo"]
+                    .AutoSizeMode =
+                    DataGridViewAutoSizeColumnMode.None;
+
+                checksumGrid.Columns[
+                    "SerialNo"]
+                    .Width = 60;
+
+                checksumGrid.Columns[
+                    "FileName"]
+                    .AutoSizeMode =
+                    DataGridViewAutoSizeColumnMode.Fill;
+
+                checksumGrid.Columns[
+                    "Checksum"]
+                    .AutoSizeMode =
+                    DataGridViewAutoSizeColumnMode.Fill;
+
+                //-------------------------------------------------
+                // ADD FILES
+                //-------------------------------------------------
+
+                int serialNo = 1;
+
+                foreach (string filePath in files)
+                {
+                    string fileName =
+                        Path.GetFileName(
+                            filePath);
+
+                    string content =
+                        File.ReadAllText(
+                            filePath);
+
+                    List<string> checksumLines =
+                        content
+                        .Split(
+                            new[]
+                            {
+                                "\r\n",
+                                "\n"
+                            },
+                            StringSplitOptions.None)
+                        .ToList();
+
+                    string checksumContent =
+                        string.Join(
+                            Environment.NewLine,
+                            checksumLines);
+
+                    string checksum =
+                        CalculateChecksumFromText(
+                            checksumContent);
+
+                    checksumGrid.Rows.Add(
+                        serialNo,
+                        fileName,
+                        checksum);
+
+                    serialNo++;
+                }
+
+                //-------------------------------------------------
+                // PRINT DOCUMENT
+                //-------------------------------------------------
+
+                PrintDocument printDocument =
+                    new PrintDocument();
+
+                int printRowIndex = 0;
+
+                printDocument.BeginPrint +=
+                    (printSender, printEvent) =>
+                    {
+                        printRowIndex = 0;
+                    };
+
+                printDocument.PrintPage +=
+                    (printSender, printEvent) =>
+                    {
+                        Graphics g =
+                            printEvent.Graphics;
+
+                        using (Font titleFont =
+                               new Font(
+                                   "Arial",
+                                   16,
+                                   FontStyle.Bold))
+                        using (Font headerFont =
+                               new Font(
+                                   "Arial",
+                                   10,
+                                   FontStyle.Bold))
+                        using (Font rowFont =
+                               new Font(
+                                   "Arial",
+                                   10))
+                        {
+                            float x = 50;
+
+                            float y = 50;
+
+                            float pageWidth =
+                                printEvent.PageBounds.Width -
+                                100;
+
+                            //-------------------------------------------------
+                            // TITLE
+                            //-------------------------------------------------
+
+                            g.DrawString(
+                                "Checksum List",
+                                titleFont,
+                                Brushes.Black,
+                                x,
+                                y);
+
+                            y += 40;
+
+                            //-------------------------------------------------
+                            // COLUMN WIDTHS
+                            //-------------------------------------------------
+
+                            float snoWidth = 60;
+
+                            float fileWidth =
+                                pageWidth * 0.55f;
+
+                            float checksumWidth =
+                                pageWidth -
+                                snoWidth -
+                                fileWidth;
+
+                            float rowHeight = 28;
+
+                            //-------------------------------------------------
+                            // HEADER
+                            //-------------------------------------------------
+
+                            g.DrawRectangle(
+                                Pens.Black,
+                                x,
+                                y,
+                                snoWidth,
+                                rowHeight);
+
+                            g.DrawRectangle(
+                                Pens.Black,
+                                x + snoWidth,
+                                y,
+                                fileWidth,
+                                rowHeight);
+
+                            g.DrawRectangle(
+                                Pens.Black,
+                                x +
+                                snoWidth +
+                                fileWidth,
+                                y,
+                                checksumWidth,
+                                rowHeight);
+
+                            g.DrawString(
+                                "S.No",
+                                headerFont,
+                                Brushes.Black,
+                                x + 5,
+                                y + 6);
+
+                            g.DrawString(
+                                "File Name",
+                                headerFont,
+                                Brushes.Black,
+                                x +
+                                snoWidth +
+                                5,
+                                y + 6);
+
+                            g.DrawString(
+                                "Checksum",
+                                headerFont,
+                                Brushes.Black,
+                                x +
+                                snoWidth +
+                                fileWidth +
+                                5,
+                                y + 6);
+
+                            y += rowHeight;
+
+                            //-------------------------------------------------
+                            // ROWS
+                            //-------------------------------------------------
+
+                            while (printRowIndex <
+                                   checksumGrid.Rows.Count)
+                            {
+                                if (y + rowHeight >
+                                    printEvent.PageBounds.Height -
+                                    50)
+                                {
+                                    printEvent.HasMorePages =
+                                        true;
+
+                                    break;
+                                }
+
+                                DataGridViewRow row =
+                                    checksumGrid.Rows[
+                                        printRowIndex];
+
+                                string sno =
+                                    row.Cells[
+                                        "SerialNo"]
+                                    .Value?
+                                    .ToString() ?? "";
+
+                                string fileName =
+                                    row.Cells[
+                                        "FileName"]
+                                    .Value?
+                                    .ToString() ?? "";
+
+                                string checksum =
+                                    row.Cells[
+                                        "Checksum"]
+                                    .Value?
+                                    .ToString() ?? "";
+
+                                //-------------------------------------------------
+                                // CELLS
+                                //-------------------------------------------------
+
+                                g.DrawRectangle(
+                                    Pens.Black,
+                                    x,
+                                    y,
+                                    snoWidth,
+                                    rowHeight);
+
+                                g.DrawRectangle(
+                                    Pens.Black,
+                                    x +
+                                    snoWidth,
+                                    y,
+                                    fileWidth,
+                                    rowHeight);
+
+                                g.DrawRectangle(
+                                    Pens.Black,
+                                    x +
+                                    snoWidth +
+                                    fileWidth,
+                                    y,
+                                    checksumWidth,
+                                    rowHeight);
+
+                                //-------------------------------------------------
+                                // TEXT
+                                //-------------------------------------------------
+
+                                g.DrawString(
+                                    sno,
+                                    rowFont,
+                                    Brushes.Black,
+                                    x + 5,
+                                    y + 6);
+
+                                g.DrawString(
+                                    fileName,
+                                    rowFont,
+                                    Brushes.Black,
+                                    x +
+                                    snoWidth +
+                                    5,
+                                    y + 6);
+
+                                g.DrawString(
+                                    checksum,
+                                    rowFont,
+                                    Brushes.Black,
+                                    x +
+                                    snoWidth +
+                                    fileWidth +
+                                    5,
+                                    y + 6);
+
+                                y += rowHeight;
+
+                                printRowIndex++;
+                            }
+
+                            //-------------------------------------------------
+                            // PRINT COMPLETE
+                            //-------------------------------------------------
+
+                            if (printRowIndex >=
+                                checksumGrid.Rows.Count)
+                            {
+                                printEvent.HasMorePages =
+                                    false;
+                            }
+                        }
+                    };
+
+                //-------------------------------------------------
+                // ADD CONTROLS
+                //-------------------------------------------------
+
+                checksumForm.Controls.Add(
+                    checksumGrid);
+
+                checksumForm.Controls.Add(
+                    topPanel);
+
+                //-------------------------------------------------
+                // PRINT BUTTON CLICK
+                //-------------------------------------------------
+
+                printButton.Click +=
+                    (printSender, printEvent) =>
+                    {
+                        using (PrintDialog printDialog =
+                               new PrintDialog())
+                        {
+                            printDialog.Document =
+                                printDocument;
+
+                            printDialog.AllowSomePages =
+                                true;
+
+                            printDialog.UseEXDialog =
+                                true;
+
+                            if (printDialog.ShowDialog(
+                                checksumForm) ==
+                                DialogResult.OK)
+                            {
+                                try
+                                {
+                                    printDocument.Print();
+                                }
+                                catch (Exception ex)
+                                {
+                                    MessageBox.Show(
+                                        checksumForm,
+                                        "Printing error:\n\n" +
+                                        ex.Message,
+                                        "Print Error",
+                                        MessageBoxButtons.OK,
+                                        MessageBoxIcon.Error);
+                                }
+                            }
+                        }
+                    };
+
+                //-------------------------------------------------
+                // SHOW CHECKSUM WINDOW
+                //-------------------------------------------------
+
+                checksumForm.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    "Error while calculating checksums:\n\n" +
+                    ex.Message,
+                    "Checksum Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+
+        //=========================================================
+        // ADD FILE MENU
+        //=========================================================
+
+        private void addFileToolStripMenuItem1_Click(
+            object sender,
+            EventArgs e)
+        {
+            using (OpenFileDialog ofd =
+                   new OpenFileDialog())
+            {
+                ofd.Title =
+                    "Select File";
+
+                ofd.Filter =
+                    "Text Files (*.txt)|*.txt|" +
+                    "All Files (*.*)|*.*";
+
+                if (ofd.ShowDialog() !=
+                    DialogResult.OK)
+                {
+                    return;
+                }
+
+                string sourceFile =
+                    ofd.FileName;
+
+                string fileName =
+                    Path.GetFileName(
+                        sourceFile);
+
+                string destinationFile =
+                    Path.Combine(
+                        currentFolder,
+                        fileName);
+
+                //-------------------------------------------------
+                // DUPLICATE FILE CHECK
+                //-------------------------------------------------
+
+                if (File.Exists(
+                    destinationFile))
+                {
+                    MessageBox.Show(
+                        "File already exists.",
+                        "Duplicate File",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+
+                    return;
+                }
+
+                try
+                {
+                    File.Copy(
+                        sourceFile,
+                        destinationFile);
+
+                    LoadReferenceFiles();
+
+                    MessageBox.Show(
+                        "File added successfully.",
+                        "Success",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(
+                        "Error:\n\n" +
+                        ex.Message,
+                        "Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                }
+            }
+        }
+
+
+        //=========================================================
+        // LINK FILE
+        //=========================================================
+
+        private void linkToolStripMenuItem_Click(
+            object sender,
+            EventArgs e)
+        {
+            using (OpenFileDialog ofd =
+                   new OpenFileDialog())
+            {
+                ofd.Title =
+                    "Select Reference File";
+
+                ofd.Filter =
+                    "Text Files (*.txt)|*.txt|" +
+                    "All Files (*.*)|*.*";
+
+                if (ofd.ShowDialog() ==
+                    DialogResult.OK)
+                {
+                    string fileName =
+                        Path.GetFileName(
+                            ofd.FileName);
+
+                    //-------------------------------------------------
+                    // CHECK DUPLICATE LINK
+                    //-------------------------------------------------
+
+                    if (!AddReferenceWithDuplicateCheck(
+                        fileName))
+                    {
+                        return;
+                    }
+
+                    //-------------------------------------------------
+                    // SAVE
+                    //-------------------------------------------------
+
+                    AutoSaveFile();
+                }
+            }
+        }
+
+
+        //=========================================================
+        // DELETE REFERENCE BUTTON
+        //=========================================================
+
+        private void btnDelete_Click(
+            object sender,
+            EventArgs e)
+        {
+            if (listBox2.SelectedIndex == -1)
+            {
+                MessageBox.Show(
+                    "Please select a reference file.");
+
+                return;
+            }
+
+            //-----------------------------------------------------
+            // HEADER PROTECTION
+            //-----------------------------------------------------
+
+            if (listBox2.SelectedIndex == 0 &&
+                listBox2.SelectedItem
+                    .ToString()
+                    .Equals(
+                        "REFERENCE FILES",
+                        StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(
+                    "The REFERENCE FILES header cannot be deleted.",
+                    "Delete Reference",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+
+                return;
+            }
+
+            //-----------------------------------------------------
+            // DELETE
+            //-----------------------------------------------------
+
+            listBox2.Items.RemoveAt(
+                listBox2.SelectedIndex);
+
+            AutoSaveFile();
+        }
+
+
+        //=========================================================
+        // LISTBOX1 SPACING
+        //=========================================================
+
+        private void listBox1_SelectedIndexChanged_1(
+            object sender,
+            EventArgs e)
+        {
+            listBox1.DrawMode =
+                DrawMode.OwnerDrawFixed;
+
+            listBox1.ItemHeight = 30;
+        }
+
+        private void listBox3_SelectedIndexChanged_1(object sender, EventArgs e)
+        {
+
+        }
+    }
+}
